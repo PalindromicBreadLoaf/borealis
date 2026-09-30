@@ -34,8 +34,8 @@ const std::string hintXML = R"xml(
         axis="row"
         paddingTop="4"
         paddingBottom="4"
-        paddingLeft="16"
-        paddingRight="16"
+        paddingLeft="10"
+        paddingRight="10"
         cornerRadius="6">
             <brls:Label
                 id="icon"
