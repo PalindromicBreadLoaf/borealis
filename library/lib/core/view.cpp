@@ -1529,8 +1529,7 @@ View::~View()
     }
 
     // Focus sanity check
-    if (Application::getCurrentFocus() == this)
-        Application::giveFocus(nullptr);
+    Application::forgetView(this);
 
     Application::tryDeinitFirstResponder(this);
     for (GestureRecognizer* recognizer : this->gestureRecognizers)

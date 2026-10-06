@@ -23,11 +23,11 @@
 #include <borealis/core/font.hpp>
 #include <borealis/core/frame_context.hpp>
 #include <borealis/core/logger.hpp>
+#include <borealis/core/notification_manager.hpp>
 #include <borealis/core/platform.hpp>
 #include <borealis/core/style.hpp>
 #include <borealis/core/theme.hpp>
 #include <borealis/core/view.hpp>
-#include <borealis/core/notification_manager.hpp>
 #include <borealis/views/label.hpp>
 #include <deque>
 #include <vector>
@@ -133,13 +133,19 @@ class Application
      * return false if no actifity to pop.
      */
     static bool popActivity(
-        TransitionAnimation animation = TransitionAnimation::FADE, std::function<void(void)> cb = [] {}, bool free = true);
+        TransitionAnimation animation = TransitionAnimation::FADE, std::function<void(void)> cb = [] { }, bool free = true);
 
     /**
      * Gives the focus to the given view
      * or clears the focus if given nullptr.
      */
     static void giveFocus(View* view);
+
+    /**
+     * Drops every reference the focus system holds to a view
+     * that is being destroyed.
+     */
+    static void forgetView(View* view);
 
     inline static Style getStyle()
     {
@@ -387,7 +393,7 @@ class Application
     inline static std::vector<BrlsKeyState> watchedKeys;
     inline static std::vector<BrlsKeyState> oldWatchedKeys;
     inline static std::unordered_map<int, int> watchedKeysMap;
-    inline static ControllerState controllerState = {};
+    inline static ControllerState controllerState = { };
 
     inline static void processInput();
     inline static bool internalMainLoop();

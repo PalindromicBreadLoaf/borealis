@@ -17,9 +17,6 @@
     limitations under the License.
 */
 
-#include <cstdio>
-#include <cstdlib>
-#include <cmath>
 #include <yoga/YGNode.h>
 #include <yoga/event/event.h>
 
@@ -37,6 +34,7 @@
 #include <borealis/views/cells/cell_radio.hpp>
 #include <borealis/views/cells/cell_selector.hpp>
 #include <borealis/views/cells/cell_slider.hpp>
+#include <borealis/views/debug_layer.hpp>
 #include <borealis/views/h_scrolling_frame.hpp>
 #include <borealis/views/header.hpp>
 #include <borealis/views/hint.hpp>
@@ -50,7 +48,9 @@
 #include <borealis/views/widgets/account.hpp>
 #include <borealis/views/widgets/battery.hpp>
 #include <borealis/views/widgets/wireless.hpp>
-#include <borealis/views/debug_layer.hpp>
+#include <cmath>
+#include <cstdio>
+#include <cstdlib>
 #include <stdexcept>
 #include <string>
 
@@ -63,7 +63,7 @@
 #include <thread>
 
 #define BUTTOM_REPEAT_TRIGGER 250000 // 250ms
-#define BUTTON_REPEAT_DELAY   100000 // 100 ms
+#define BUTTON_REPEAT_DELAY 100000 // 100 ms
 
 namespace brls
 {
@@ -79,7 +79,7 @@ bool Application::init()
         Application::ORIGINAL_WINDOW_HEIGHT = 720;
 
     // Init platform
-    Application::platform = Platform::createPlatform();
+    Application::platform            = Platform::createPlatform();
     Application::notificationManager = new NotificationManager();
 
     if (!Application::platform)
@@ -137,7 +137,7 @@ void Application::createWindow(std::string windowTitle)
     Application::title        = windowTitle;
 
     // Init yoga
-    YGConfig* defaultConfig       = YGConfigGetDefault();
+    YGConfig* defaultConfig = YGConfigGetDefault();
     defaultConfig->setUseWebDefaults(true);
     using namespace facebook;
 
@@ -223,6 +223,9 @@ bool Application::internalMainLoop()
     }
     Application::deletionPool = undeletedViews;
 
+    if (!Application::currentFocus && !Application::activitiesStack.empty())
+        Application::giveFocus(Application::activitiesStack.back()->getContentView());
+
     if (Application::limitedFrameTime > 0)
     {
         Time deltaTime = getCPUTimeUsec() - frameStartTime;
@@ -238,15 +241,16 @@ bool Application::internalMainLoop()
 
 void Application::updateFPS()
 {
-    static Time start = getCPUTimeUsec();
+    static Time start   = getCPUTimeUsec();
     static size_t index = 0;
 
     index++;
     // update FPS every second
-    if (Application::frameStartTime - start > 1000000) {
+    if (Application::frameStartTime - start > 1000000)
+    {
         Application::globalFPS = index;
-        start = Application::frameStartTime;
-        index = 0;
+        start                  = Application::frameStartTime;
+        index                  = 0;
     }
 }
 
@@ -257,7 +261,7 @@ const ControllerState& Application::getControllerState()
 
 void Application::processInput()
 {
-    static ControllerState oldControllerState = {};
+    static ControllerState oldControllerState = { };
 
     // Input
     std::vector<RawTouchState> rawTouch;
@@ -380,8 +384,8 @@ void Application::processInput()
     }
 
     // Trigger controller events
-    bool repeating                  = false;
-    Time cpuTime = getCPUTimeUsec();
+    bool repeating = false;
+    Time cpuTime   = getCPUTimeUsec();
 
     for (int i = 0; i < _BUTTON_MAX; i++)
     {
@@ -397,7 +401,9 @@ void Application::processInput()
 
             if (!oldControllerState.buttons[i] || repeating)
                 Application::onControllerButtonPressed((enum ControllerButton)i, repeating);
-        } else {
+        }
+        else
+        {
             controllerState.repeatingButtonStop[i] = 0;
         }
     }
@@ -421,10 +427,7 @@ void Application::processInput()
         }
 
         watchedKey.pressed = inputManager->getKeyboardKeyState(scancode);
-        if (static_cast<bool>(watchedKey.getModifiers() & BRLS_KBD_MODIFIER_SHIFT) != shiftPressed ||
-            static_cast<bool>(watchedKey.getModifiers() & BRLS_KBD_MODIFIER_CTRL) != ctrlPressed ||
-            static_cast<bool>(watchedKey.getModifiers() & BRLS_KBD_MODIFIER_ALT) != altPressed ||
-            static_cast<bool>(watchedKey.getModifiers() & BRLS_KBD_MODIFIER_META) != metaPressed)
+        if (static_cast<bool>(watchedKey.getModifiers() & BRLS_KBD_MODIFIER_SHIFT) != shiftPressed || static_cast<bool>(watchedKey.getModifiers() & BRLS_KBD_MODIFIER_CTRL) != ctrlPressed || static_cast<bool>(watchedKey.getModifiers() & BRLS_KBD_MODIFIER_ALT) != altPressed || static_cast<bool>(watchedKey.getModifiers() & BRLS_KBD_MODIFIER_META) != metaPressed)
         {
             // If the key is pressed but the modifiers are not, unpressed it
             watchedKey.pressed = false;
@@ -902,6 +905,16 @@ void Application::giveFocus(View* view)
     }
 }
 
+void Application::forgetView(View* view)
+{
+    if (Application::currentFocus == view)
+        Application::currentFocus = nullptr;
+    if (Application::repetitionOldFocus == view)
+        Application::repetitionOldFocus = nullptr;
+    std::replace(Application::focusStack.begin(), Application::focusStack.end(), view,
+        static_cast<View*>(nullptr));
+}
+
 bool Application::popActivity(TransitionAnimation animation, std::function<void(void)> cb, bool free)
 {
     if (Application::activitiesStack.size() <= 1) // never pop the first activity
@@ -921,9 +934,9 @@ bool Application::popActivity(TransitionAnimation animation, std::function<void(
     if (Application::activitiesStack.size() > 1)
     {
         toShow = Application::activitiesStack[Application::activitiesStack.size() - 2];
-        toShow->hide([]() {}, false, 0);
+        toShow->hide([]() { }, false, 0);
         toShow->onResume();
-        toShow->show([]() {}, false, 0);
+        toShow->show([]() { }, false, 0);
     }
 
     // Focus
@@ -931,7 +944,7 @@ bool Application::popActivity(TransitionAnimation animation, std::function<void(
     {
         View* newFocus = Application::focusStack[Application::focusStack.size() - 1];
 
-        if (!toShow || newFocus->getParentActivity() == toShow)
+        if (newFocus && (!toShow || newFocus->getParentActivity() == toShow))
         {
             Logger::debug("Giving focus to {}, and removing it from the focus stack", newFocus->describe());
             Application::giveFocus(newFocus);
@@ -1009,7 +1022,7 @@ void Application::pushActivity(Activity* activity, TransitionAnimation animation
     }
     else
     {
-        activity->hide([]() {}, false, 0);
+        activity->hide([]() { }, false, 0);
 
         brls::Logger::debug("push activity to the stack");
         Application::activitiesStack.push_back(activity);
@@ -1029,6 +1042,9 @@ void Application::clear()
     }
 
     Application::activitiesStack.clear();
+    Application::focusStack.clear();
+    Application::currentFocus       = nullptr;
+    Application::repetitionOldFocus = nullptr;
 }
 
 Theme Application::getTheme()
@@ -1193,8 +1209,7 @@ void Application::onWindowResized(int width, int height)
             Logger::info("Window size changed to {}x{}, content size: {}x{} windowScale: {}",
                 width, height, contentWidth, contentHeight, Application::windowScale);
             brls::Logger::info("scale factor: {}",
-                Application::getPlatform()->getVideoContext()->getScaleFactor());
-        });
+                Application::getPlatform()->getVideoContext()->getScaleFactor()); });
 }
 
 void Application::setWindowPosition(int x, int y)

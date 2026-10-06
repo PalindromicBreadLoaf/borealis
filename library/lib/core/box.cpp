@@ -222,6 +222,9 @@ void Box::removeView(View* view, bool free)
         YGNodeRemoveChild(this->ygNode, view->getYGNode());
     this->children.erase(this->children.begin() + index);
 
+    if (this->lastFocusedView == view)
+        this->lastFocusedView = nullptr;
+
     // Update parent userdata
     for (size_t i = index; i < this->children.size(); i++)
     {
