@@ -158,7 +158,7 @@ void HScrollingFrame::naturalScrollingBehaviour()
         // If current focus view is outside scrolling bounds,
         // change focus to this.
         View* currentFocus = Application::getCurrentFocus();
-        if (!currentFocus->getFrame().inscribed(getFrame()))
+        if (!currentFocus || !currentFocus->getFrame().inscribed(getFrame()))
         {
             Application::giveFocus(this);
         }
@@ -507,7 +507,7 @@ View* HScrollingFrame::getParentNavigationDecision(View* from, View* newFocus, F
         if (from == contentView)
         {
             naturalScrollingCanScroll = true;
-            if (currentFocus->getFrame().inscribed(this->getFrame()))
+            if (currentFocus && currentFocus->getFrame().inscribed(this->getFrame()))
                 return currentFocus;
 
             return this;
@@ -522,7 +522,7 @@ View* HScrollingFrame::getParentNavigationDecision(View* from, View* newFocus, F
             naturalScrollingCanScroll = true;
     }
 
-    if (currentFocus->getFrame().inscribed(this->getFrame()))
+    if (currentFocus && currentFocus->getFrame().inscribed(this->getFrame()))
         return currentFocus;
 
     return this;
