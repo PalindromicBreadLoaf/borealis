@@ -37,7 +37,6 @@ class BottomBar : public Box
     std::string bottomText;
     BRLS_BIND(Box, hints, "brls/hints");
     BRLS_BIND(Label, time, "brls/hints/time");
-    BRLS_BIND(View, battery, "brls/battery");
     BRLS_BIND(View, wireless, "brls/wireless");
 };
 

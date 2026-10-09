@@ -64,11 +64,6 @@ const std::string bottomBarXML = R"xml(
                 alignItems="center"
                 direction="leftToRight" >
 
-                <brls:Battery
-                    id="brls/battery"
-                    marginRight="21"
-                    marginBottom="5"/>
-
                 <brls:Wireless
                     id="brls/wireless"
                     marginRight="21"
@@ -93,7 +88,6 @@ BottomBar::BottomBar()
     this->inflateFromXMLString(bottomBarXML);
 
     Platform* platform = Application::getPlatform();
-    battery->setVisibility(platform->canShowBatteryLevel() ? Visibility::VISIBLE : Visibility::GONE);
     wireless->setVisibility(platform->canShowWirelessLevel() ? Visibility::VISIBLE : Visibility::GONE);
 }
 
