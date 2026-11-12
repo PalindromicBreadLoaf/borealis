@@ -58,6 +58,10 @@ static void on_applet_hook(AppletHookType hook, void* arg)
         case AppletHookType_OnOperationMode:
             ((SwitchVideoContext*)platform->getVideoContext())->appletCallback(hook);
             break;
+#elif defined(BOREALIS_USE_EGL)
+        case AppletHookType_OnOperationMode:
+            ((SwitchEGLVideoContext*)platform->getVideoContext())->appletCallback(hook);
+            break;
 #endif
         default:
             break;
@@ -116,6 +120,8 @@ void SwitchPlatform::createWindow(std::string windowTitle, uint32_t windowWidth,
 {
 #ifdef BOREALIS_USE_DEKO3D
     this->videoContext = new SwitchVideoContext();
+#elif defined(BOREALIS_USE_EGL)
+    this->videoContext = new SwitchEGLVideoContext();
 #elif defined(__SDL2__)
     this->videoContext = new SDLVideoContext(windowTitle, windowWidth, windowHeight, 0, 0);
 #else
