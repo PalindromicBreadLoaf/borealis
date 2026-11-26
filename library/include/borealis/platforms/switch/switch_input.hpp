@@ -18,9 +18,9 @@
 #pragma once
 
 #include <switch.h>
-#include <unordered_map>
 
 #include <borealis/core/input.hpp>
+#include <unordered_map>
 
 #define TOUCHES_MAX 10
 
@@ -54,6 +54,16 @@ class SwitchInputManager : public InputManager
 
     void drawCursor(NVGcontext* vg) override;
 
+    void setPadMouseEnabled(bool enabled) override;
+
+    void setPadMouseBindings(std::vector<ControllerButton> buttons) override;
+
+    bool isPadMouseBinding(ControllerButton button) override;
+
+    bool isPadMouseMode() override;
+
+    std::string getSensorDebugInfo() override;
+
     void sendRumbleRaw(float lowFreq, float highFreq, float lowAmp, float highAmp);
 
     void clearVibration(int controller);
@@ -73,6 +83,35 @@ class SwitchInputManager : public InputManager
     u32 padsStyleSet[GAMEPADS_MAX];
     bool pointerLocked = false;
     HidMouseState currentMouseState;
+#ifdef __SWITCH2__
+    static constexpr int PAD_MOUSE_AREA_W              = 1920;
+    static constexpr int PAD_MOUSE_AREA_H              = 1080;
+    static constexpr int PAD_MOUSE_MOVE_THRESHOLD      = 64;
+    static constexpr Time PAD_MOUSE_IDLE_HIDE_USEC     = 3000000; // 3 s
+    static constexpr float PAD_MOUSE_GRIP_MIN_ACCEL    = 0.85f;
+    static constexpr float PAD_MOUSE_GRIP_MAX_ACCEL    = 1.15f;
+    static constexpr float PAD_MOUSE_DOT_RADIUS        = 9.0f;
+    static constexpr uint8_t PAD_MOUSE_DOT_ALPHA       = 128; // 50 %
+    static constexpr uint8_t PAD_MOUSE_DOT_ALPHA_CLICK = 191; // 75 %
+    static constexpr uint64_t PAD_MOUSE_CLICK_MASK     = (uint64_t)HidNpadButton_L | (uint64_t)HidNpadButton_R | (uint64_t)HidNpadButton_ZL | (uint64_t)HidNpadButton_ZR;
+    bool padMouseEnabled                               = false;
+    bool padPointerReady                               = false;
+    bool padMouseHasAnchor                             = false;
+    PadPointer padPointer { };
+    bool padMouseMode       = false; // cursor visible
+    Time padMouseLastActive = 0;
+    int padMouseAnchorX = 0, padMouseAnchorY = 0;
+    bool padMouseBindings[_BUTTON_MAX] = { };
+
+    void exitPadMouseMode();
+
+    bool padMouseGripOk();
+
+    HidSixAxisSensorState readSixAxis(HidSixAxisSensorHandle handle);
+
+    bool padMouseLeftDown = false, padMouseRightDown = false;
+    bool padMouseLeftHeld = false, padMouseRightHeld = false;
+#endif
     HidSixAxisSensorHandle m_six_axis_sensor_handle[4]; // All for player 1, player 2 not supported
 
     std::vector<bool> m_hid_keyboard_state;
@@ -81,6 +120,9 @@ class SwitchInputManager : public InputManager
 
     void initCursor(NVGcontext* vg);
     void handleMouse();
+#ifdef __SWITCH2__
+    void handlePadPointer();
+#endif
     void handleKeyboard();
     void handleControllerSensors();
     void upToDateMouseState();
@@ -90,7 +132,6 @@ class SwitchInputManager : public InputManager
         unsigned short lowFreqMotor, unsigned short highFreqMotor);
     void sendRumbleInternal(HidVibrationDeviceHandle vibration_device[2], HidVibrationValue vibration_values[2],
         float lowFreq, float highFreq, float lowAmp, float highAmp);
-
 };
 
 /// HidKeyboardScancode

@@ -14,6 +14,8 @@
     limitations under the License.
 */
 
+#include <math.h>
+
 #include <borealis/core/application.hpp>
 #include <borealis/platforms/switch/switch_input.hpp>
 
@@ -128,6 +130,13 @@ SwitchInputManager::SwitchInputManager()
     hidStartSixAxisSensor(this->m_six_axis_sensor_handle[1]);
     hidStartSixAxisSensor(this->m_six_axis_sensor_handle[2]);
     hidStartSixAxisSensor(this->m_six_axis_sensor_handle[3]);
+
+#ifdef __SWITCH2__
+    u64 aruid = appletGetAppletResourceUserId();
+    Result rc = serviceDispatchIn(hidsysGetServiceSession(), 500, aruid);
+    if (R_FAILED(rc))
+        Logger::warning("SixAxis: hidsys applet resource binding failed: 0x{:x}", (unsigned)rc);
+#endif
 }
 
 SwitchInputManager::~SwitchInputManager()
@@ -142,7 +151,158 @@ SwitchInputManager::~SwitchInputManager()
     hidStopSixAxisSensor(this->m_six_axis_sensor_handle[2]);
     hidStopSixAxisSensor(this->m_six_axis_sensor_handle[3]);
 
+#ifdef __SWITCH2__
+    if (this->padPointerReady)
+        padPointerExit(&this->padPointer);
+#endif
 }
+
+void SwitchInputManager::setPadMouseEnabled(bool enabled)
+{
+#ifdef __SWITCH2__
+    if (this->padMouseEnabled == enabled)
+        return;
+    this->padMouseEnabled = enabled;
+    this->exitPadMouseMode();
+    this->padMouseHasAnchor = false;
+    if (enabled)
+    {
+        if (R_SUCCEEDED(padPointerInitialize(&this->padPointer, PAD_MOUSE_AREA_W, PAD_MOUSE_AREA_H)))
+        {
+            // Map R/ZR (right Joy-Con) and L/ZL (left Joy-Con) to the
+            // left/right click groups; the stock config maps both to
+            // left, which leaves right click unreachable.
+            HidNmouseButtonConfigJoyRightJcms rightConfig { };
+            rightConfig.selectors[0] = 1; // R  -> group 1 (Left)
+            rightConfig.selectors[1] = 2; // ZR -> group 2 (Right)
+            HidNmouseButtonConfigJoyLeftJcms leftConfig { };
+            leftConfig.selectors[0] = 1; // L  -> group 1 (Left)
+            leftConfig.selectors[1] = 2; // ZL -> group 2 (Right)
+            if (R_SUCCEEDED(hidSetNmouseButtonConfigJoyRightJcms(&rightConfig))
+                && R_SUCCEEDED(hidSetNmouseButtonConfigJoyLeftJcms(&leftConfig)))
+            {
+                this->padPointerReady = true;
+                Logger::info("PadMouse: Joy-Con pointer enabled");
+            }
+            else
+            {
+                padPointerExit(&this->padPointer);
+                Logger::warning("PadMouse: button config failed, disabled");
+            }
+        }
+        else
+        {
+            Logger::warning("PadMouse: padPointerInitialize failed, disabled");
+        }
+    }
+    else if (this->padPointerReady)
+    {
+        padPointerExit(&this->padPointer);
+        this->padPointerReady = false;
+        Logger::info("PadMouse: disabled, sticks back on the pads");
+    }
+#else
+    (void)enabled;
+#endif
+}
+
+void SwitchInputManager::setPadMouseBindings(std::vector<ControllerButton> buttons)
+{
+#ifdef __SWITCH2__
+    for (size_t i = 0; i < _BUTTON_MAX; i++)
+        this->padMouseBindings[i] = false;
+    for (ControllerButton button : buttons)
+    {
+        if (button >= 0 && button < _BUTTON_MAX)
+            this->padMouseBindings[button] = true;
+    }
+#else
+    (void)buttons;
+#endif
+}
+
+bool SwitchInputManager::isPadMouseBinding(ControllerButton button)
+{
+#ifdef __SWITCH2__
+    return this->padMouseMode && button >= 0 && button < _BUTTON_MAX && this->padMouseBindings[button];
+#else
+    (void)button;
+    return false;
+#endif
+}
+
+bool SwitchInputManager::isPadMouseMode()
+{
+#ifdef __SWITCH2__
+    return this->padMouseMode;
+#else
+    return false;
+#endif
+}
+
+std::string SwitchInputManager::getSensorDebugInfo()
+{
+#ifdef __SWITCH2__
+    const HidSixAxisSensorState left  = this->readSixAxis(this->m_six_axis_sensor_handle[2]);
+    const HidSixAxisSensorState right = this->readSixAxis(this->m_six_axis_sensor_handle[3]);
+
+    auto grip = [](float x, bool isLeft)
+    {
+        if (isLeft)
+            return x >= PAD_MOUSE_GRIP_MIN_ACCEL && x <= PAD_MOUSE_GRIP_MAX_ACCEL;
+        return x >= -PAD_MOUSE_GRIP_MAX_ACCEL && x <= -PAD_MOUSE_GRIP_MIN_ACCEL;
+    };
+
+    return fmt::format(
+        "LC accel({:+.2f},{:+.2f},{:+.2f}) {}\n"
+        "RC accel({:+.2f},{:+.2f},{:+.2f}) {}",
+        left.acceleration.x, left.acceleration.y, left.acceleration.z,
+        grip(left.acceleration.x, true) ? "grip" : "----",
+        right.acceleration.x, right.acceleration.y, right.acceleration.z,
+        grip(right.acceleration.x, false) ? "grip" : "----");
+#else
+    return "";
+#endif
+}
+
+#ifdef __SWITCH2__
+void SwitchInputManager::exitPadMouseMode()
+{
+    if (!this->padMouseMode)
+        return;
+    this->padMouseMode    = false;
+    this->padMouseAnchorX = this->padPointer.x;
+    this->padMouseAnchorY = this->padPointer.y;
+    // Hand control back to the pads: the input type stays TOUCH from the
+    // last mouse activity otherwise, and gamepad focus behaviour (list
+    // re-centering etc.) is gated on the GAMEPAD type in borealis.
+    Application::setInputType(InputType::GAMEPAD);
+}
+
+bool SwitchInputManager::padMouseGripOk()
+{
+    const HidSixAxisSensorState left  = this->readSixAxis(this->m_six_axis_sensor_handle[2]);
+    const HidSixAxisSensorState right = this->readSixAxis(this->m_six_axis_sensor_handle[3]);
+    const float lx                    = left.acceleration.x;
+    const float rx                    = right.acceleration.x;
+    const bool leftGrip               = lx >= PAD_MOUSE_GRIP_MIN_ACCEL && lx <= PAD_MOUSE_GRIP_MAX_ACCEL;
+    const bool rightGrip              = rx >= -PAD_MOUSE_GRIP_MAX_ACCEL && rx <= -PAD_MOUSE_GRIP_MIN_ACCEL;
+    return leftGrip || rightGrip;
+}
+
+HidSixAxisSensorState SwitchInputManager::readSixAxis(HidSixAxisSensorHandle handle)
+{
+    HidSixAxisSensorState s = { 0 };
+    hidGetSixAxisSensorStates(handle, &s, 1);
+    if (s.acceleration.x == 0.f && s.acceleration.y == 0.f && s.acceleration.z == -1.f)
+    {
+        u64 aruid = appletGetAppletResourceUserId();
+        serviceDispatchIn(hidsysGetServiceSession(), 500, aruid);
+        hidGetSixAxisSensorStates(handle, &s, 1);
+    }
+    return s;
+}
+#endif
 
 void SwitchInputManager::clearVibration(int controller)
 {
@@ -153,10 +313,10 @@ void SwitchInputManager::clearVibration(int controller)
 
 void SwitchInputManager::updateUnifiedControllerState(ControllerState* state)
 {
-    for (size_t i         = 0; i < _BUTTON_MAX; i++)
+    for (size_t i = 0; i < _BUTTON_MAX; i++)
         state->buttons[i] = false;
 
-    for (size_t i      = 0; i < _AXES_MAX; i++)
+    for (size_t i = 0; i < _AXES_MAX; i++)
         state->axes[i] = 0;
 
     auto connected = getControllersConnectedCount();
@@ -193,6 +353,20 @@ void SwitchInputManager::updateUnifiedControllerState(ControllerState* state)
         state->buttons[BUTTON_A] |= getKeyboardKeyState(BRLS_KBD_KEY_ENTER);
         state->buttons[BUTTON_B] |= getKeyboardKeyState(BRLS_KBD_KEY_ESCAPE);
     }
+
+#ifdef __SWITCH2__
+    if (this->padMouseMode)
+    {
+        for (size_t j = 0; j < _BUTTON_MAX; j++)
+        {
+            if (state->buttons[j] && !this->padMouseBindings[j])
+            {
+                this->exitPadMouseMode();
+                break;
+            }
+        }
+    }
+#endif
 }
 
 short SwitchInputManager::getControllersConnectedCount()
@@ -234,6 +408,11 @@ void SwitchInputManager::updateControllerStateInner(ControllerState* state, PadS
 {
     padUpdate(pad);
     uint64_t keysDown = padGetButtons(pad);
+
+#ifdef __SWITCH2__
+    if (this->padMouseMode)
+        keysDown &= ~PAD_MOUSE_CLICK_MASK;
+#endif
 
     bool full = pad->style_set & HidNpadStyleSet_NpadFullCtrl;
 
@@ -286,6 +465,12 @@ void SwitchInputManager::updateTouchStates(std::vector<RawTouchState>* states)
             state.position.y = hidState.touches[i].y / Application::windowScale;
             states->push_back(state);
         }
+#ifdef __SWITCH2__
+        if (!states->empty())
+        {
+            this->padMouseMode = false;
+        }
+#endif
     }
 }
 
@@ -351,6 +536,25 @@ void SwitchInputManager::sendRumble(unsigned short controller, unsigned short lo
 
 void SwitchInputManager::updateMouseStates(RawMouseState* state)
 {
+#ifdef __SWITCH2__
+    if (this->padPointerReady && this->padPointer.active && this->padMouseMode)
+    {
+        // Map the fixed pointer area to layout points so the cursor,
+        // hit-testing and gestures stay correct in every UI scale.
+        const float scaleX      = (float)Application::ORIGINAL_WINDOW_WIDTH / (float)PAD_MOUSE_AREA_W;
+        const float scaleY      = (float)Application::ORIGINAL_WINDOW_HEIGHT / (float)PAD_MOUSE_AREA_H;
+        state->position         = Point((float)this->padPointer.x * scaleX, (float)this->padPointer.y * scaleY);
+        state->offset           = Point((float)this->padPointer.delta_x * scaleX, (float)this->padPointer.delta_y * scaleY);
+        state->scroll           = Point(0, (float)this->padPointer.wheel_delta_y);
+        state->leftButton       = this->padMouseLeftDown;
+        state->middleButton     = (padPointerGetButtons(&this->padPointer) & HidMouseButton_Middle) != 0;
+        state->rightButton      = this->padMouseRightDown;
+        lastCursorPosition      = state->position;
+        this->padMouseLeftHeld  = state->leftButton;
+        this->padMouseRightHeld = state->rightButton;
+    }
+    // Otherwise: report nothing; the pads keep L/R/ZL/ZR (seek).
+#else
     if (currentMouseState.attributes & HidMouseAttribute_IsConnected)
     {
         state->position     = Point(currentMouseState.x, currentMouseState.y);
@@ -361,28 +565,128 @@ void SwitchInputManager::updateMouseStates(RawMouseState* state)
         state->rightButton  = currentMouseState.buttons & HidMouseButton_Right;
         lastCursorPosition  = state->position;
     }
+#endif
 }
 
 void SwitchInputManager::runloopStart()
 {
     upToDateMouseState();
     handleMouse();
+#ifdef __SWITCH2__
+    handlePadPointer();
+#endif
     handleKeyboard();
     handleControllerSensors();
 }
 
+#ifdef __SWITCH2__
+void SwitchInputManager::handlePadPointer()
+{
+    if (!this->padPointerReady)
+        return;
+
+    const PadState* pad = this->padStateHandheld.active_handheld ? &this->padStateHandheld : &this->padsState[0];
+    padPointerUpdate(&this->padPointer, pad);
+
+    const Time now       = getCPUTimeUsec();
+    const u32 buttons    = padPointerGetButtons(&this->padPointer);
+    const bool leftDown  = (buttons & HidMouseButton_Left) != 0;
+    const bool rightDown = (buttons & HidMouseButton_Right) != 0;
+    const bool moved     = this->padPointer.delta_x != 0 || this->padPointer.delta_y != 0;
+    const bool scrolled  = this->padPointer.wheel_delta_y != 0;
+
+    if (!this->padMouseHasAnchor)
+    {
+        this->padMouseAnchorX   = this->padPointer.x;
+        this->padMouseAnchorY   = this->padPointer.y;
+        this->padMouseHasAnchor = true;
+    }
+
+    if (!this->padPointer.active)
+    {
+        if (this->padMouseMode)
+        {
+            this->padMouseMode    = false;
+            this->padMouseAnchorX = this->padPointer.x;
+            this->padMouseAnchorY = this->padPointer.y;
+        }
+        this->padMouseLeftDown  = false;
+        this->padMouseRightDown = false;
+        this->padMouseLeftHeld  = false;
+        this->padMouseRightHeld = false;
+        return;
+    }
+
+    const int netX      = this->padPointer.x - this->padMouseAnchorX;
+    const int netY      = this->padPointer.y - this->padMouseAnchorY;
+    const int distSq    = netX * netX + netY * netY;
+    const bool netMoved = moved && distSq >= PAD_MOUSE_MOVE_THRESHOLD * PAD_MOUSE_MOVE_THRESHOLD;
+
+    const bool gripOk = this->padMouseGripOk();
+
+    if (this->padMouseMode)
+    {
+        if (!gripOk)
+        {
+            // Out of the mouse grip: back to controller mode immediately.
+            this->exitPadMouseMode();
+        }
+        else
+        {
+            // While mouse mode is on, L/R/ZL/ZR belong to the pointer for the
+            // whole mode (clicks, never pad actions). Real use keeps the mode
+            // alive: net travel from the anchor (so sensor jitter while
+            // resting never counts), wheel scroll, or a click.
+            if (netMoved || scrolled || leftDown || rightDown)
+            {
+                this->padMouseLastActive = now;
+                if (netMoved)
+                {
+                    this->padMouseAnchorX = this->padPointer.x;
+                    this->padMouseAnchorY = this->padPointer.y;
+                }
+            }
+            else if (now - this->padMouseLastActive >= PAD_MOUSE_IDLE_HIDE_USEC)
+            {
+                // Unused for 3 s: back to controller mode (cursor hides).
+                this->exitPadMouseMode();
+            }
+        }
+    }
+    else if ((netMoved || scrolled) && gripOk)
+    {
+        this->padMouseMode       = true;
+        this->padMouseLastActive = now;
+        this->padMouseAnchorX    = this->padPointer.x;
+        this->padMouseAnchorY    = this->padPointer.y;
+    }
+
+    this->padMouseLeftDown  = leftDown;
+    this->padMouseRightDown = rightDown;
+    this->padMouseLeftHeld  = leftDown;
+    this->padMouseRightHeld = rightDown;
+}
+#endif
+
 void SwitchInputManager::upToDateMouseState()
 {
+#ifndef __SWITCH2__
     hidGetMouseStates(&currentMouseState, 1);
+#endif
 }
 
 void SwitchInputManager::handleMouse()
 {
+#ifdef __SWITCH2__
+    // No ordinary mouse on Switch 2: USB mice are unsupported and the
+    // Joy-Con pointer reports through updateMouseStates.
+#else
     if (currentMouseState.attributes & HidMouseAttribute_IsConnected)
     {
         getMouseCusorOffsetChanged()->fire(Point(currentMouseState.delta_x, currentMouseState.delta_y));
         getMouseScrollOffsetChanged()->fire(Point(currentMouseState.wheel_delta_y, currentMouseState.wheel_delta_x));
     }
+#endif
 }
 
 void SwitchInputManager::handleKeyboard()
@@ -399,7 +703,7 @@ void SwitchInputManager::handleKeyboard()
                 m_hid_keyboard_state[i]            = is_pressed;
                 const BrlsKeyboardScancode brlsKey = m_hid_brls_map[i];
 
-                KeyState keyState{};
+                KeyState keyState { };
                 keyState.key     = brlsKey;
                 keyState.pressed = is_pressed;
 
@@ -444,23 +748,22 @@ void SwitchInputManager::handleControllerSensors()
             hidGetSixAxisSensorStates(this->m_six_axis_sensor_handle[3], &sixaxis, 1);
     }
 
-    auto accelState = SensorEvent{
+    auto accelState = SensorEvent {
         0,
         SensorEventType::ACCEL,
         { -sixaxis.acceleration.x,
-          -sixaxis.acceleration.z,
-          sixaxis.acceleration.y
-        },
+            -sixaxis.acceleration.z,
+            sixaxis.acceleration.y },
         0
     };
-    auto gyroState = SensorEvent{
+    auto gyroState = SensorEvent {
         0,
         SensorEventType::GYRO,
         { static_cast<float>(sixaxis.angular_velocity.x * 2.0f * M_PI),
-          static_cast<float>(sixaxis.angular_velocity.z * 2.0f * M_PI),
-          static_cast<float>(-sixaxis.angular_velocity.y * 2.0f * M_PI)
-        },
-        0 };
+            static_cast<float>(sixaxis.angular_velocity.z * 2.0f * M_PI),
+            static_cast<float>(-sixaxis.angular_velocity.y * 2.0f * M_PI) },
+        0
+    };
     getControllerSensorStateChanged()->fire(accelState);
     getControllerSensorStateChanged()->fire(gyroState);
     Application::setActiveEvent(true);
@@ -473,6 +776,18 @@ void SwitchInputManager::setPointerLock(bool lock)
 
 void SwitchInputManager::drawCursor(NVGcontext* vg)
 {
+#ifdef __SWITCH2__
+    if (this->padPointerReady && !pointerLocked && this->padMouseMode)
+    {
+        nvgBeginPath(vg);
+        nvgCircle(vg, lastCursorPosition.x, lastCursorPosition.y, PAD_MOUSE_DOT_RADIUS);
+        nvgFillColor(vg,
+            nvgRGBA(255, 255, 255,
+                (this->padMouseLeftHeld || this->padMouseRightHeld) ? PAD_MOUSE_DOT_ALPHA_CLICK
+                                                                    : PAD_MOUSE_DOT_ALPHA));
+        nvgFill(vg);
+    }
+#else
     initCursor(vg);
     if (!pointerLocked)
     {
@@ -484,6 +799,7 @@ void SwitchInputManager::drawCursor(NVGcontext* vg)
         nvgFillPaint(vg, this->paint);
         nvgFill(vg);
     }
+#endif
 }
 
 void SwitchInputManager::initCursor(NVGcontext* vg)

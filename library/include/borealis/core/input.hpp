@@ -22,6 +22,7 @@
 #include <borealis/core/event.hpp>
 #include <borealis/core/geometry.hpp>
 #include <borealis/core/time.hpp>
+#include <string>
 #include <vector>
 
 #define GAMEPADS_MAX 5
@@ -339,11 +340,25 @@ class InputManager
      * Called once every runloop cycle to perform some cleanup before new one.
      * For internal call only
      */
-    virtual void runloopStart() {};
+    virtual void runloopStart() { };
 
-    virtual void drawCursor(NVGcontext* vg) {};
+    virtual void drawCursor(NVGcontext* vg) { };
 
-    virtual void setPointerLock(bool lock) {};
+    virtual void setPointerLock(bool lock) { };
+
+    virtual void setPadMouseEnabled(bool enabled) { (void)enabled; };
+
+    virtual void setPadMouseBindings(std::vector<ControllerButton> buttons) { (void)buttons; };
+
+    virtual bool isPadMouseBinding(ControllerButton button)
+    {
+        (void)button;
+        return false;
+    };
+
+    virtual std::string getSensorDebugInfo() { return ""; };
+
+    virtual bool isPadMouseMode() { return false; };
 
     inline Event<Point>* getMouseCusorOffsetChanged()
     {
@@ -355,7 +370,8 @@ class InputManager
         return &mouseScrollOffsetChanged;
     }
 
-    inline Event<SensorEvent>* getControllerSensorStateChanged() {
+    inline Event<SensorEvent>* getControllerSensorStateChanged()
+    {
         return &controllerSensorStateChanged;
     }
 

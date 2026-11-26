@@ -320,6 +320,8 @@ class Application
         return inputType;
     }
 
+    static bool setInputType(InputType type);
+
     inline static void enableDebuggingView(bool enable)
     {
         debuggingViewEnabled = enable;
@@ -385,9 +387,6 @@ class Application
     inline static std::vector<TouchState> currentTouchState;
     inline static MouseState currentMouseState;
     inline static NotificationManager* notificationManager;
-
-    // Return true if input type was changed
-    static bool setInputType(InputType type);
 
     inline static InputType inputType = InputType::GAMEPAD;
     inline static std::vector<BrlsKeyState> watchedKeys;
